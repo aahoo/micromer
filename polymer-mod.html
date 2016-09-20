@@ -1,0 +1,283 @@
+<script>
+
+// polymer-bootstrap
+
+Polymer.telemetry.map = Object.create(null);
+
+Polymer.telemetry._registrate = function(prototype) {
+
+  this.registrations.push(prototype);
+  this.map[prototype.is] = prototype;
+  Polymer.log && this._regLog(prototype);
+
+}.bind(Polymer.telemetry);
+
+////////////////////////////////////////////////////////////////////////////////
+
+// attributes
+
+Polymer.Base._addFeature({
+
+  /* apply attributes to node but avoid overriding existing values */
+  _applyAttributes: function(node, attr$) {
+    for(var n in attr$) {
+      // NOTE: never allow 'class' to be set in hostAttributes
+      // since shimming classes would make it work
+      // inconsisently under native SD
+      if(!this.hasAttribute(n) /****mod && (n !== 'class')****/ ) {
+        var v = attr$[n];
+        this.serializeValueToAttribute(v, n, this);
+      }
+    }
+  },
+
+});
+
+////////////////////////////////////////////////////////////////////////////////
+
+// accessors
+Polymer.Bind.prepareInstance = function(inst) {
+  // inst.__data__ = Object.create(null);
+  inst.__data__ = inst.__data__ || Object.create(null);
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+// effects
+
+Polymer.Base.extend(Polymer.Bind, {
+
+  _observerEffect: function(source, value, effect, old) {
+    var fn = this[effect.method];
+    if(fn) {
+      /////mod
+      // fn.call(this, value, old);
+      fn.call(this, value, old, effect.property);
+      /////
+    } else {
+      this._warn(this._logf('_observerEffect', 'observer method `' +
+        effect.method + '` not defined'));
+    }
+  },
+
+});
+
+////////////////////////////////////////////////////////////////////////////////
+
+// effectBuilder
+
+Polymer.Base._addFeature({
+
+  // prototyping
+  _prepEffects: function() {
+    Polymer.Bind.prepareModel(this);
+    /////mod this._addAnnotationEffects(this._notes); /////
+  },
+
+  // instancing
+  _marshalInstanceEffects: function() {
+    Polymer.Bind.prepareInstance(this);
+    /****mod
+    if (this._bindListeners) {
+      Polymer.Bind.setupBindListeners(this);
+    }
+    ****/
+  },
+
+});
+
+////////////////////////////////////////////////////////////////////////////////
+
+// configure
+(function() {
+  Polymer.Base._addFeature({
+    // storage for configuration
+    _setupConfigure: function(initialConfig) {
+      this._config = {};
+      /////mod this._handlers = []; /////
+      this._aboveConfig = null;
+      if (initialConfig) {
+        // don't accept undefined values in intialConfig
+        for (var i in initialConfig) {
+          if (initialConfig[i] !== undefined) {
+            this._config[i] = initialConfig[i];
+          }
+        }
+      }
+    },
+    // configure: returns user supplied default property values
+    // combines with _config to create final property values
+    _configure: function() {
+      // some annotation data needs to be handed from host to client
+      // e.g. hand template content stored in notes to children as part of
+      // configure flow so templates have their content at ready time
+      /////mod this._configureAnnotationReferences(); /////
+      // save copy of configuration that came from above
+      this._aboveConfig = this.mixin({}, this._config);
+      // get individual default values from property configs
+      var config = {};
+      // mixed-in behaviors
+      for (var i = 0; i < this.behaviors.length; i++) {
+        this._configureProperties(this.behaviors[i].properties, config);
+      }
+      // prototypical behavior
+      this._configureProperties(this.properties, config);
+      // TODO(sorvell): it *may* be faster to loop over _propertyInfo but
+      // there are some test issues.
+      //this._configureProperties(this._propertyInfo, config);
+      // override local configuration with configuration from above
+      this.mixin(config, this._aboveConfig);
+      // this is the new _config, which are the final values to be applied
+      this._config = config;
+      // pass configuration data to bindings
+      /****mod
+      if (this._clients && this._clients.length) {
+        this._distributeConfig(this._config);
+      }
+      ****/
+    },
+    // Override polymer-mini thunk
+    _afterClientsReady: function() {
+      // process static effects, e.g. computations that have only literal arguments
+      /////mod this._executeStaticEffects(); /////
+      this._applyConfig(this._config, this._aboveConfig);
+      /////mod this._flushHandlers(); /////
+    },
+  });
+})();
+
+////////////////////////////////////////////////////////////////////////////////
+
+// notify-path
+
+Polymer.Base._addFeature({
+
+  _get: function(path, root, info) {
+    return _.get(root, path);
+  },
+
+  set: function(path, value, root) {
+    _.set(root, path, value);
+  },
+
+});
+
+////////////////////////////////////////////////////////////////////////////////
+
+// dom-bind
+
+Polymer.Base._addFeature({
+
+  _scopeElementClass: function(element, selector) {
+    if(this.dataHost) {
+      return this.dataHost._scopeElementClass(element, selector);
+    } else {
+      return selector;
+    }
+  },
+
+});
+
+////////////////////////////////////////////////////////////////////////////////
+
+// utils
+
+Polymer.Base._addFeature({
+
+  /**
+   * Convenience method for creating an element and configuring it.
+   *
+   * @method create
+   * @param {string, object} tag
+   *        if string: either 'tagName' or 'is' or 'extends is'.
+   *        if object: {is} or {is, extends}
+   * @param {Object} props Object of properties to configure on the
+   *    instance.
+   * @return {Element} Newly created and configured element.
+   */
+  create: function(tag, props) {
+    var args;
+
+    if(typeof tag == 'string') {
+      args = tag.split(' ');
+      if(args.length == 1) {
+        args = tag.split('-').length == 1 ? [tag] : null;
+        if(!args) tag = Polymer.telemetry.map[tag]; // || tag;
+      }
+    }
+    if(!tag) return;
+    if(!args) args = tag.extends ? [tag.extends, tag.is] : [tag.is || tag];
+    var elt = document.createElement.apply(document, args);
+    if(props) Polymer.Base.mixin(elt, props);
+    return elt;
+  },
+
+});
+
+////////////////////////////////////////////////////////////////////////////////
+
+// main
+
+Polymer.Base._addFeature({
+
+  _registerFeatures: function() {
+    // identity
+    this._prepIs();
+    // factory
+    this._prepConstructor();
+    // fast access to property info
+    // this._prepPropertyInfo();
+  },
+
+  _finishRegisterFeatures: function() {
+    // accessors
+    this._prepEffects();
+    // shared behaviors
+    this._prepBehaviors();
+    // fast access to property info
+    this._prepPropertyInfo();
+    // accessors part 2
+    this._prepBindings();
+  },
+
+  _prepBehavior: function(b) {
+    this._addPropertyEffects(b.properties);
+    // this._addComplexObserverEffects(b.observers);
+    this._addHostAttributes(b.hostAttributes);
+  },
+
+  _initFeatures: function() { // @creation i.e. to instance
+
+    // manage configuration
+    this._setupConfigure();
+    // concretize effects on instance
+    this._marshalInstanceEffects();
+    // acquire instance behaviors
+    this._marshalBehaviors();
+    /*
+    TODO(sorvell): It's *slightly() more efficient to marshal attributes prior
+    to installing hostAttributes, but then hostAttributes must be separately
+    funneled to configure, which is cumbersome.
+    Since this delta seems hard to measure we will not bother atm.
+    */
+    // install host attributes
+    this._marshalHostAttributes();
+    // acquire initial instance attribute values
+    this._marshalAttributes();
+
+    /////mod
+    this._beforeClientsReady();
+    this._afterClientsReady();
+    /////
+  },
+
+  _marshalBehavior: function(b) {
+    // establish listeners on instance
+    if(b.listeners) {
+      this._listenListeners(b.listeners);
+    }
+  }
+
+});
+
+</script>
